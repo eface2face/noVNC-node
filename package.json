@@ -16,6 +16,7 @@
   "homepage": "https://github.com/eface2face/noVNC-node",
   "dependencies": {
     "base64-js": "0.0.8",
+    "bowser": "^0.7.2",
     "debug": "^2.1.1"
   },
   "devDependencies": {

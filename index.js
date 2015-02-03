@@ -1,13 +1,15 @@
 /**
  * Dependencies.
  */
-var keys = require('./lib/keys');
-var base64 = require('./lib/base64');
+var Util = require('./lib/util');
+var Keys = require('./lib/keys');
+var Keyboard = require('./lib/keyboard');
 
 
 var noVNC = {
-	keys: keys,
-	base64: base64
+	Util: Util,
+	Keys: Keys,
+	Keyboard: Keyboard
 };
 
 
