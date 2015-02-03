@@ -1,0 +1,8 @@
+# Node modules.
+/node_modules/
+
+# Browserified files.
+/dist/
+
+# Original include/ folder.
+/include/

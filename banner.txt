@@ -1,0 +1,8 @@
+/*
+ * <%= pkg.name %> <%= pkg.version %>
+ * <%= pkg.description %>
+ * <%= pkg.copyright %>
+ * Homepage: <%= pkg.homepage %>
+ * License <%= pkg.license %>
+ */
+
