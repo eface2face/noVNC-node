@@ -64,5 +64,6 @@ gulp.task('browserify', function() {
 });
 
 
-gulp.task('devel', gulp.series('lint', 'test', 'browserify'));
-gulp.task('default', gulp.series('lint', 'test'));
+gulp.task('devel', gulp.series('lint', 'test'));
+
+gulp.task('default', gulp.series('lint', 'test', 'browserify'));
