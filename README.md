@@ -3,7 +3,7 @@
 Fork of [noVNC](https://github.com/kanaka/noVNC) to be used with Node/browserify.
 
 
-## Installation
+## Development
 
 [Node.js](http://nodejs.org) must be installed.
 
@@ -26,6 +26,12 @@ Install dependencies:
 
 ```bash
 $ npm install
+```
+
+And run `gulp` (or `node_modules/.bin/gulp`):
+
+```bash
+$ gulp
 ```
 
 
