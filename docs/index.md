@@ -1,8 +1,8 @@
 # Documentation
 
-* [Overview](docs/Overview.md)
+* [Overview](Overview.md)
 
 
 ## API
 
-* [noVNC](docs/noVNC.md)
+* [noVNC](noVNC.md)
