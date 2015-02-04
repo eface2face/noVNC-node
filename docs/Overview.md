@@ -11,3 +11,4 @@
 * Removed Flash feature.
 * Removed "no native WebSocket" feature.
 * Use the Node [debug](https://github.com/visionmedia/debug) library for debugging.
+* Use [gulp](http://gulpjs.com/) to lint, test and build the browserified library.
