@@ -1,4 +1,4 @@
-# noVNC.js
+# noVNC-node
 
 Fork of [noVNC](https://github.com/kanaka/noVNC) to be used with Node/browserify.
 
@@ -18,7 +18,7 @@ $ npm install -g gulpjs/gulp-cli#4.0
 Get the source code:
 
 ```bash
-$ git clone https://github.com/eface2face/noVNC.git
+$ git clone https://github.com/eface2face/noVNC-node.git
 $ cd noVNC/
 ```
 
@@ -35,14 +35,31 @@ Add the library to the `dependencies` field within the `package.json` file of yo
 
 ```json
 "dependencies": {
-    "noVNC": "git+https://github.com/eface2face/noVNC.git"
+    "noVNC": "git+https://github.com/eface2face/noVNC-node.git"
 }
 ```
+
+And use it as usual:
+
+```javascript
+var noVNC = require('noVNC');
+```
+
+
+## Browserified library
+
+Take the browserified version of the library at `dist/novnc-node-X.Y.Z.js`. It exposes the global `window.noVNC` module/Object.
+
+```html
+<script src='novnc-node-X.Y.Z.js'></script>
+```
+
+The browserified version is built with [browserify](browserify.org), meaning that when it is loaded with a `<script>` it just exposes the global `noVNC` module/Object if there is not a JavaScript module loader (`RequireJS`, etc) in use.
 
 
 ## Documentation
 
-*TODO*
+Read the full [API documentation](docs/index.md) in the *docs* folder.
 
 
 ## Author

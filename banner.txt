@@ -1,5 +1,5 @@
 /*
- * <%= pkg.name %> <%= pkg.version %>
+ * <%= pkg.title %> <%= pkg.version %>
  * <%= pkg.description %>
  * <%= pkg.copyright %>
  * Homepage: <%= pkg.homepage %>
