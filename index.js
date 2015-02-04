@@ -7,7 +7,9 @@ var KbdUtil = require('./lib/kbdutil');
 var Input = require('./lib/input');
 var Websock = require('./lib/websock');
 var Base64 = require('./lib/base64');
-// var RFB = require('./lib/rfb');
+var DES = require('./lib/des');
+var RFB = require('./lib/rfb');
+var TINF = require('./lib/tinf');
 
 
 var noVNC = {
@@ -17,7 +19,9 @@ var noVNC = {
 	Input: Input,
 	Websock: Websock,
 	Base64: Base64,
-	// RFB: RFB
+	DES: DES,
+	RFB: RFB,
+	TINF: TINF
 };
 
 
