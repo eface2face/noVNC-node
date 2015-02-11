@@ -64,6 +64,16 @@ gulp.task('browserify', function() {
 });
 
 
+gulp.task('copy', function() {
+	var src = 'dist/' + pkg.name + '-' + pkg.version + '.js';
+	return gulp.src(src)
+		.pipe(filelog('copy'))
+		.pipe(expect(expectOptions, src))
+		.pipe(rename(pkg.name + '.js'))
+		.pipe(gulp.dest('dist/'));
+});
+
+
 gulp.task('devel', gulp.series('lint', 'test'));
 
-gulp.task('default', gulp.series('lint', 'test', 'browserify'));
+gulp.task('default', gulp.series('lint', 'test', 'browserify', 'copy'));
