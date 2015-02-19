@@ -75,5 +75,7 @@ gulp.task('copy', function() {
 
 
 gulp.task('devel', gulp.series('lint', 'test'));
+gulp.task('dist', gulp.series('lint', 'test', 'browserify', 'copy'));
 
-gulp.task('default', gulp.series('lint', 'test', 'browserify', 'copy'));
+
+gulp.task('default', gulp.series('devel'));
