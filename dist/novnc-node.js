@@ -2683,10 +2683,8 @@ function RFB (defaults) {
 
 	defaults = defaults || {};
 
-	this._rfb_host = '';
-	this._rfb_port = 5900;
+	this._rfb_url = null;
 	this._rfb_password = '';
-	this._rfb_path = '';
 
 	this._rfb_state = 'disconnected';
 	this._rfb_version = 0;
@@ -2885,15 +2883,9 @@ function RFB (defaults) {
 
 RFB.prototype = {
 	// Public methods
-	connect: function (host, port, password, path) {
-		this._rfb_host = host;
-		this._rfb_port = port;
+	connect: function (url, password) {
+		this._rfb_url = url;
 		this._rfb_password = (password !== undefined) ? password : '';
-		this._rfb_path = (path !== undefined) ? path : '';
-
-		if (!this._rfb_host || !this._rfb_port) {
-			return this._fail('Must set host and port');
-		}
 
 		this._updateState('connect');
 	},
@@ -2990,15 +2982,9 @@ RFB.prototype = {
 	},
 
 	// Private methods
-
 	_connect: function () {
-		var uri;
-
-		uri = this._encrypt ? 'wss' : 'ws';
-		uri += '://' + this._rfb_host + ':' + this._rfb_port + '/' + this._rfb_path;
-
-		debug('_connect() | connecting to ' + uri);
-		this._sock.open(uri, this._wsProtocols);
+		debug('_connect() | connecting to ' + this._rfb_url);
+		this._sock.open(this._rfb_url, this._wsProtocols);
 	},
 
 	_init_vars: function () {
@@ -3169,10 +3155,13 @@ RFB.prototype = {
 				// No state change action to take
 		}
 
+		// TODO: ibc: IMHO this will throw since _onUpdateState is defined nowhere.
+		// https://github.com/kanaka/noVNC/issues/455
+		// So I me it to onUpdateState which is a property of the RFB instance.
 		if (oldstate === 'failed' && state === 'disconnected') {
-			this._onUpdateState(this, state, oldstate);
+			this.onUpdateState(this, state, oldstate);
 		} else {
-			this._onUpdateState(this, state, oldstate, statusMsg);
+			this.onUpdateState(this, state, oldstate, statusMsg);
 		}
 	},
 
@@ -3646,11 +3635,7 @@ RFB.prototype = {
 
 		this._checkEvents();
 
-		if (this._encrypt) {
-			this._updateState('normal', 'Connected (encrypted) to: ' + this._fb_name);
-		} else {
-			this._updateState('normal', 'Connected (unencrypted) to: ' + this._fb_name);
-		}
+		this._updateState('normal', 'Connected to: ' + this._fb_name);
 	},
 
 	_init_msg: function () {
@@ -5213,75 +5198,12 @@ var Util = module.exports = {
 
 	/**
 	 * Get DOM element position on page.
-	 * TODO: Just used in ui.js, which is not included. Remove this.
 	 */
-	getPosition: (function () {
-		function getStyle(obj, styleProp) {
-			var y;
+	getPosition: function (obj) {
+		var objPosition = obj.getBoundingClientRect();
 
-			if (obj.currentStyle) {
-				y = obj.currentStyle[styleProp];
-			} else if (global.getComputedStyle) {
-				y = global.getComputedStyle(obj, null)[styleProp];
-			}
-			return y;
-		}
-
-		function scrollDist() {
-			var myScrollTop = 0, myScrollLeft = 0;
-			var html = document.getElementsByTagName('html')[0];
-
-			// get the scrollTop part
-			if (html.scrollTop && document.documentElement.scrollTop) {
-				myScrollTop = html.scrollTop;
-			} else if (html.scrollTop || document.documentElement.scrollTop) {
-				myScrollTop = html.scrollTop + document.documentElement.scrollTop;
-			} else if (document.body.scrollTop) {
-				myScrollTop = document.body.scrollTop;
-			} else {
-				myScrollTop = 0;
-			}
-
-			// get the scrollLeft part
-			if (html.scrollLeft && document.documentElement.scrollLeft) {
-				myScrollLeft = html.scrollLeft;
-			} else if (html.scrollLeft || document.documentElement.scrollLeft) {
-				myScrollLeft = html.scrollLeft + document.documentElement.scrollLeft;
-			} else if (document.body.scrollLeft) {
-				myScrollLeft = document.body.scrollLeft;
-			} else {
-				myScrollLeft = 0;
-			}
-
-			return [myScrollLeft, myScrollTop];
-		}
-
-		return function (obj) {
-			var curleft = 0, curtop = 0, scr = obj, fixed = false;
-
-			while ((scr = scr.parentNode) && scr !== document.body) {
-				curleft -= scr.scrollLeft || 0;
-				curtop -= scr.scrollTop || 0;
-				if (getStyle(scr, 'position') === 'fixed') {
-					fixed = true;
-				}
-			}
-			// NOTE: New Opera uses Chrome engine.
-			//if (fixed && !global.opera) {
-			if (fixed) {
-				var scrDist = scrollDist();
-				curleft += scrDist[0];
-				curtop += scrDist[1];
-			}
-
-			do {
-				curleft += obj.offsetLeft;
-				curtop += obj.offsetTop;
-			} while ((obj = obj.offsetParent));
-
-			return {'x': curleft, 'y': curtop};
-		};
-	})(),
+		return {'x': objPosition.left, 'y': objPosition.top};
+	},
 
 	/**
 	 * Get mouse event position in DOM element

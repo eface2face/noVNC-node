@@ -3,6 +3,38 @@
 Fork of [noVNC](https://github.com/kanaka/noVNC) to be used with Node/browserify.
 
 
+## Installation
+
+* With **npm**:
+
+```bash
+$ npm install --save novnc-node
+```
+
+
+## Usage in Node/browserify
+
+```javascript
+var noVNC = require('novnc-node');
+```
+
+
+## Browserified library
+
+Take the browserified version of the library at `dist/novnc-node-X.Y.Z.js`. It exposes the global `window.noVNC` module/Object.
+
+```html
+<script src='novnc-node-X.Y.Z.js'></script>
+```
+
+The browserified version is built with [browserify](browserify.org), meaning that when it is loaded with a `<script>` it just exposes the global `noVNC` module/Object if there is not a JavaScript module loader (`RequireJS`, etc) in use.
+
+
+## Documentation
+
+Read the full [API documentation](docs/index.md) in the *docs* folder.
+
+
 ## Development
 
 [Node.js](http://nodejs.org) must be installed.
@@ -33,39 +65,6 @@ And run `gulp` (or `node_modules/.bin/gulp`):
 ```bash
 $ gulp
 ```
-
-
-## Usage in Node/browserify
-
-Add the library to the `dependencies` field within the `package.json` file of your Node project:
-
-```json
-"dependencies": {
-    "noVNC": "git+https://github.com/eface2face/noVNC-node.git"
-}
-```
-
-And use it as usual:
-
-```javascript
-var noVNC = require('noVNC');
-```
-
-
-## Browserified library
-
-Take the browserified version of the library at `dist/novnc-node-X.Y.Z.js`. It exposes the global `window.noVNC` module/Object.
-
-```html
-<script src='novnc-node-X.Y.Z.js'></script>
-```
-
-The browserified version is built with [browserify](browserify.org), meaning that when it is loaded with a `<script>` it just exposes the global `noVNC` module/Object if there is not a JavaScript module loader (`RequireJS`, etc) in use.
-
-
-## Documentation
-
-Read the full [API documentation](docs/index.md) in the *docs* folder.
 
 
 ## Author

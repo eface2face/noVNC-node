@@ -29,7 +29,7 @@
     "gulp-jshint": "^1.9.2",
     "gulp-nodeunit-runner": "^0.2.2",
     "gulp-rename": "^1.2.0",
-    "jshint-stylish": "^1.0.0",
+    "jshint-stylish": "^1.0.1",
     "vinyl-transform": "^1.0.0"
   }
 }
