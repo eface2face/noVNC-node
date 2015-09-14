@@ -448,6 +448,7 @@ function encrypt(t) {
 /*
  * noVNC: HTML5 VNC client
  * Copyright (C) 2012 Joel Martin
+ * Copyright (C) 2015 Samuel Mannehed for Cendio AB
  * Licensed under MPL 2.0 (see LICENSE.txt)
  */
 
@@ -480,6 +481,10 @@ function Display (defaults) {
 	// the full frame buffer (logical canvas) size
 	this._fb_width = 0;
 	this._fb_height = 0;
+
+	// the size limit of the viewport (start disabled)
+	this._maxWidth = 0;
+	this._maxHeight = 0;
 
 	// the visible 'physical canvas' viewport
 	this._viewportLoc = { 'x': 0, 'y': 0, 'w': 0, 'h': 0 };
@@ -529,29 +534,9 @@ function Display (defaults) {
 	}
 
 	// Determine browser support for setting the cursor via data URI scheme
-	var curDat = [];
-	for (var i = 0; i < 8 * 8 * 4; i++) {
-		curDat.push(255);
-	}
-	try {
-		var curSave = this._target.style.cursor;
-		Display.changeCursor(this._target, curDat, curDat, 2, 2, 8, 8);
-		if (this._target.style.cursor) {
-			if (this._cursor_uri === null || this._cursor_uri === undefined) {
-				this._cursor_uri = true;
-			}
-			debug('new() | data URI scheme cursor supported');
-			this._target.style.cursor = curSave;
-		} else {
-			if (this._cursor_uri === null || this._cursor_uri === undefined) {
-				this._cursor_uri = false;
-			}
-			debugerror('new() | data URI scheme cursor not supported');
-			this._target.style.cursor = 'none';
-		}
-	} catch (exc) {
-		debugerror('new() | data URI scheme cursor test exception: ' + exc);
-		this._cursor_uri = false;
+	if (this._cursor_uri || this._cursor_uri === null ||
+	  this._cursor_uri === undefined) {
+	  this._cursor_uri = Util.browserSupportsCursorURIs();
 	}
 }
 
@@ -648,17 +633,24 @@ Display.prototype = {
 	},
 
 	viewportChangeSize: function(width, height) {
-
-		if (!this._viewport ||
-			typeof(width) === 'undefined' || typeof(height) === 'undefined') {
-
+		if (typeof(width) === 'undefined' || typeof(height) === 'undefined') {
 			debug('viewportChangeSize() | setting viewport to full display region');
 			width = this._fb_width;
 			height = this._fb_height;
 		}
 
 		var vp = this._viewportLoc;
+
 		if (vp.w !== width || vp.h !== height) {
+			if (this._viewport) {
+				if (this._maxWidth !== 0 && width > this._maxWidth) {
+					width = this._maxWidth;
+				}
+				if (this._maxHeight !== 0 && height > this._maxHeight) {
+					height = this._maxHeight;
+				}
+			}
+
 			var cr = this._cleanRect;
 
 			if (width < vp.w &&  cr.x2 > vp.x + width - 1) {
@@ -669,33 +661,33 @@ Display.prototype = {
 				cr.y2 = vp.y + height - 1;
 			}
 
-			if (this.fbuClip()) {
-				// clipping
-				vp.w = window.innerWidth;
-				// TODO: Kill this !!!!
-				// https://github.com/kanaka/noVNC/issues/446
-				var cb = document.getElementById('noVNC-control-bar');
-				var controlbar_h = (cb !== null) ? cb.offsetHeight : 0;
-				vp.h = window.innerHeight - controlbar_h - 5;
-			} else {
-				// scrollbars
-				vp.w = width;
-				vp.h = height;
-			}
+			vp.w = width;
+			vp.h = height;
 
-			var saveImg = null;
 			var canvas = this._target;
-			if (vp.w > 0 && vp.h > 0 && canvas.width > 0 && canvas.height > 0) {
-				var img_width = canvas.width < vp.w ? canvas.width : vp.w;
-				var img_height = canvas.height < vp.h ? canvas.height : vp.h;
-				saveImg = this._drawCtx.getImageData(0, 0, img_width, img_height);
-			}
 
-			canvas.width = vp.w;
-			canvas.height = vp.h;
+			if (canvas.width !== width || canvas.height !== height) {
+				// We have to save the canvas data since changing the size will clear it
+				var saveImg = null;
 
-			if (saveImg) {
-				this._drawCtx.putImageData(saveImg, 0, 0);
+				if (vp.w > 0 && vp.h > 0 && canvas.width > 0 && canvas.height > 0) {
+					var img_width = canvas.width < vp.w ? canvas.width : vp.w;
+					var img_height = canvas.height < vp.h ? canvas.height : vp.h;
+					saveImg = this._drawCtx.getImageData(0, 0, img_width, img_height);
+				}
+
+				if (canvas.width !== width) {
+					canvas.width = width;
+					canvas.style.width = width + 'px';
+				}
+				if (canvas.height !== height) {
+					canvas.height = height;
+					canvas.style.height = height + 'px';
+				}
+
+				if (saveImg) {
+					this._drawCtx.putImageData(saveImg, 0, 0);
+				}
 			}
 		}
 	},
@@ -744,7 +736,7 @@ Display.prototype = {
 		}
 
 		this._cleanRect = {'x1': vp.x, 'y1': vp.y,
-						   'x2': vp.x + vp.w - 1, 'y2': vp.y + vp.h - 1};
+							 'x2': vp.x + vp.w - 1, 'y2': vp.y + vp.h - 1};
 
 		return {'cleanBox': cleanBox, 'dirtyBoxes': dirtyBoxes};
 	},
@@ -868,7 +860,7 @@ Display.prototype = {
 	finishTile: function () {
 		if (this._prefer_js) {
 			this._drawCtx.putImageData(this._tile, this._tile_x - this._viewportLoc.x,
-									   this._tile_y - this._viewportLoc.y);
+										 this._tile_y - this._viewportLoc.y);
 		}
 		// else: No-op -- already done by setSubTile
 	},
@@ -935,14 +927,18 @@ Display.prototype = {
 		this._target.style.cursor = 'none';
 	},
 
-	fbuClip: function () {
-		// TODO: No please!
-		// https://github.com/kanaka/noVNC/issues/446
-		var cb = document.getElementById('noVNC-control-bar');
-		var controlbar_h = (cb !== null) ? cb.offsetHeight : 0;
-		return (this._viewport &&
-			   (this._fb_width > window.innerWidth ||
-			   	this._fb_height > window.innerHeight - controlbar_h - 5));
+	clippingDisplay: function () {
+		var vp = this._viewportLoc;
+
+		var fbClip = this._fb_width > vp.w || this._fb_height > vp.h;
+		var limitedVp = this._maxWidth !== 0 && this._maxHeight !== 0;
+		var clipping = false;
+
+		if (limitedVp) {
+			clipping = vp.w > this._maxWidth || vp.h > this._maxHeight;
+		}
+
+		return fbClip || (limitedVp && clipping);
 	},
 
 	// Overridden getters/setters
@@ -970,39 +966,61 @@ Display.prototype = {
 		return this._fb_height;
 	},
 
+	autoscale: function (containerWidth, containerHeight, downscaleOnly) {
+		var targetAspectRatio = containerWidth / containerHeight;
+		var fbAspectRatio = this._fb_width / this._fb_height;
+
+		var scaleRatio;
+		if (fbAspectRatio >= targetAspectRatio) {
+				scaleRatio = containerWidth / this._fb_width;
+		} else {
+				scaleRatio = containerHeight / this._fb_height;
+		}
+
+		var targetW, targetH;
+		if (scaleRatio > 1.0 && downscaleOnly) {
+				targetW = this._fb_width;
+				targetH = this._fb_height;
+				scaleRatio = 1.0;
+		} else if (fbAspectRatio >= targetAspectRatio) {
+				targetW = containerWidth;
+				targetH = Math.round(containerWidth / fbAspectRatio);
+		} else {
+				targetW = Math.round(containerHeight * fbAspectRatio);
+				targetH = containerHeight;
+		}
+
+		// NB(directxman12): If you set the width directly, or set the
+		//                   style width to a number, the canvas is cleared.
+		//                   However, if you set the style width to a string
+		//                   ('NNNpx'), the canvas is scaled without clearing.
+		this._target.style.width = targetW + 'px';
+		this._target.style.height = targetH + 'px';
+
+		this._scale = scaleRatio;
+
+		return scaleRatio;  // so that the mouse, etc scale can be set
+	},
+
 	// Private Methods
+
 	_rescale: function (factor) {
-		var canvas = this._target;
-		var properties = ['transform', 'WebkitTransform', 'MozTransform'];
-		var transform_prop;
-
-		while ((transform_prop = properties.shift())) {
-			if (typeof canvas.style[transform_prop] !== 'undefined') {
-				break;
-			}
-		}
-
-		if (transform_prop === null) {
-			debug('_rescale() | no scaling support');
-			return;
-		}
-
-		if (typeof(factor) === 'undefined') {
-			factor = this._scale;
-		} else if (factor > 1.0) {
-			factor = 1.0;
-		} else if (factor < 0.1) {
-			factor = 0.1;
-		}
-
-		if (this._scale === factor) {
-			return;
-		}
-
 		this._scale = factor;
-		var x = canvas.width - (canvas.width * factor);
-		var y = canvas.height - (canvas.height * factor);
-		canvas.style[transform_prop] = 'scale(' + this._scale + ') translate(-' + x + 'px, -' + y + 'px)';
+
+		var w;
+		var h;
+
+		if (this._viewport &&
+			this._maxWidth !== 0 && this._maxHeight !== 0) {
+			w = Math.min(this._fb_width, this._maxWidth);
+			h = Math.min(this._fb_height, this._maxHeight);
+		} else {
+			w = this._fb_width;
+			h = this._fb_height;
+		}
+
+		this._target.style.width = Math.round(factor * w) + 'px';
+		this._target.style.height = Math.round(factor * h) + 'px';
 	},
 
 	_setFillColor: function (color) {
@@ -1093,7 +1111,7 @@ Display.prototype = {
 		}
 
 		if (this._renderQ.length > 0) {
-			Util.requestAnimFrame(this._scan_renderQ.bind(this));
+			Util.requestAnimationFrame(this._scan_renderQ.bind(this));
 		}
 	},
 };
@@ -1106,9 +1124,11 @@ Util.make_properties(Display, [
 	['true_color', 'rw', 'bool'],  // Use true-color pixel data
 	['colourMap', 'rw', 'arr'],    // Colour map array (when not true-color)
 	['scale', 'rw', 'float'],      // Display area scale factor 0.0 - 1.0
-	['viewport', 'rw', 'bool'],    // Use a viewport set with viewportChangePos()/Size()
+	['viewport', 'rw', 'bool'],    // Use viewport clipping
 	['width', 'rw', 'int'],        // Display area width
 	['height', 'rw', 'int'],       // Display area height
+	['maxWidth', 'rw', 'int'],     // Viewport max width (0 if disabled)
+	['maxHeight', 'rw', 'int'],    // Viewport max height (0 if disabled)
 
 	['render_mode', 'ro', 'str'],  // Canvas rendering mode (read-only)
 
@@ -1135,9 +1155,9 @@ Display.changeCursor = function (target, pixels, mask, hotx, hoty, w0, h0, cmap)
 	};
 	cur.push32le = function (num) {
 		this.push(num & 0xFF,
-				  (num >> 8) & 0xFF,
-				  (num >> 16) & 0xFF,
-				  (num >> 24) & 0xFF);
+					(num >> 8) & 0xFF,
+					(num >> 16) & 0xFF,
+					(num >> 24) & 0xFF);
 	};
 
 	var IHDRsz = 40;
@@ -1244,17 +1264,16 @@ var Input = module.exports = {};
 /**
  * Dependencies.
  */
-var debug = require('debug')('noVNC:Input');
-var debugerror = require('debug')('noVNC:ERROR:Input');
-debugerror.log = console.warn.bind(console);
+var debugkeyboard = require('debug')('noVNC:Input:Keybord');
+var debugmouse = require('debug')('noVNC:Input:Mouse');
 var browser = require('bowser').browser;
 var Util = require('./util');
 var kbdUtil = require('./kbdutil');
 
 
 function Keyboard (defaults) {
-	this._keyDownList = [];         // List of depressed keys
-									// (even if they are happy)
+	this._keyDownList = [];  // List of depressed keys
+									         // (even if they are happy)
 
 	Util.set_defaults(this, defaults, {
 		'target': document,
@@ -1283,7 +1302,7 @@ function Keyboard (defaults) {
 Keyboard.prototype = {
 	_handleRfbEvent: function (e) {
 		if (this._onKeyPress) {
-			debug('onKeyPress: ' + (e.type === 'keydown' ? 'down' : 'up') +
+			debugkeyboard('onKeyPress: ' + (e.type === 'keydown' ? 'down' : 'up') +
 					   ', keysym: ' + e.keysym.keysym + '(' + e.keysym.keyname + ')');
 			this._onKeyPress(e.keysym.keysym, e.type === 'keydown');
 		}
@@ -1325,21 +1344,22 @@ Keyboard.prototype = {
 			Util.stopEvent(e);
 			return false;
 		} else {
-			// Allow the event to bubble and become a keyPress event which
+			// Allow the event to bubble and become a keyUp event which
 			// will have the character code translated
 			return true;
 		}
 	},
 
 	_allKeysUp: function () {
-		debug('allKeysUp');
+		debugkeyboard('allKeysUp');
 		this._handler.releaseAll();
 	},
 
 	// Public methods
 
 	grab: function () {
-		//Util.Debug(">> Keyboard.grab");
+		debugkeyboard('grab()');
+
 		var c = this._target;
 
 		Util.addEvent(c, 'keydown', this._eventHandlers.keydown);
@@ -1351,7 +1371,8 @@ Keyboard.prototype = {
 	},
 
 	ungrab: function () {
-		//Util.Debug(">> Keyboard.ungrab");
+		debugkeyboard('ungrab()');
+
 		var c = this._target;
 
 		Util.removeEvent(c, 'keydown', this._eventHandlers.keydown);
@@ -1372,7 +1393,6 @@ Keyboard.prototype = {
 Util.make_properties(Keyboard, [
 	['target',     'wo', 'dom'],  // DOM element that captures keyboard input
 	['focused',    'rw', 'bool'], // Capture and send key events
-
 	['onKeyPress', 'rw', 'func'] // Handler for key press/release
 ]);
 
@@ -1475,7 +1495,7 @@ Mouse.prototype = {
 		}
 
 		if (this._onMouseButton) {
-			Util.Debug('onMouseButton: ' + (down ? 'down' : 'up') +
+			debugmouse('onMouseButton: ' + (down ? 'down' : 'up') +
 					   ', x: ' + pos.x + ', y: ' + pos.y + ', bmask: ' + bmask);
 			this._onMouseButton(pos.x, pos.y, down, bmask);
 		}
@@ -1523,7 +1543,7 @@ Mouse.prototype = {
 	},
 
 	_handleMouseMove: function (e) {
-		if (! this._focused) { return true; }
+		if (!this._focused) { return true; }
 
 		if (this._notify) {
 			this._notify(e);
@@ -1558,14 +1578,19 @@ Mouse.prototype = {
 	// Public methods
 
 	grab: function () {
-		var c = this._target;
+		debugmouse('grab()');
 
-		if ('ontouchstart' in document.documentElement) {
+		var c = this._target;
+		var isTouch = 'ontouchstart' in document.documentElement;
+
+		if (isTouch) {
 			Util.addEvent(c, 'touchstart', this._eventHandlers.mousedown);
 			Util.addEvent(global, 'touchend', this._eventHandlers.mouseup);
 			Util.addEvent(c, 'touchend', this._eventHandlers.mouseup);
 			Util.addEvent(c, 'touchmove', this._eventHandlers.mousemove);
-		} else {
+		}
+
+		if (!isTouch || this._enableMouseAndTouch) {
 			Util.addEvent(c, 'mousedown', this._eventHandlers.mousedown);
 			Util.addEvent(global, 'mouseup', this._eventHandlers.mouseup);
 			Util.addEvent(c, 'mouseup', this._eventHandlers.mouseup);
@@ -1580,14 +1605,19 @@ Mouse.prototype = {
 	},
 
 	ungrab: function () {
-		var c = this._target;
+		debugmouse('ungrab()');
 
-		if ('ontouchstart' in document.documentElement) {
+		var c = this._target;
+		var isTouch = 'ontouchstart' in document.documentElement;
+
+		if (isTouch) {
 			Util.removeEvent(c, 'touchstart', this._eventHandlers.mousedown);
 			Util.removeEvent(global, 'touchend', this._eventHandlers.mouseup);
 			Util.removeEvent(c, 'touchend', this._eventHandlers.mouseup);
 			Util.removeEvent(c, 'touchmove', this._eventHandlers.mousemove);
-		} else {
+		}
+
+		if (!isTouch || this._enableMouseAndTouch) {
 			Util.removeEvent(c, 'mousedown', this._eventHandlers.mousedown);
 			Util.removeEvent(global, 'mouseup', this._eventHandlers.mouseup);
 			Util.removeEvent(c, 'mouseup', this._eventHandlers.mouseup);
@@ -1609,6 +1639,7 @@ Util.make_properties(Mouse, [
 	['notify',         'ro', 'func'],  // Function to call to notify whenever a mouse event is received
 	['focused',        'rw', 'bool'],  // Capture and send mouse clicks/movement
 	['scale',          'rw', 'float'], // Viewport scale factor 0.0 - 1.0
+	['enableMouseAndTouch', 'rw', 'bool'],  // Whether also enable mouse events when touch screen is detected
 
 	['onMouseButton',  'rw', 'func'],  // Handler for mouse button click/release
 	['onMouseMove',    'rw', 'func'],  // Handler for mouse movement
@@ -2706,14 +2737,14 @@ function RFB (defaults) {
 		['Cursor',           -239 ],
 
 		// Psuedo-encoding settings
-		//['JPEG_quality_lo',   -32 ],
-		['JPEG_quality_med',    -26 ],
-		//['JPEG_quality_hi',   -23 ],
-		//['compress_lo',      -255 ],
-		['compress_hi',        -247 ],
-		['last_rect',          -224 ],
-		['xvp',                -309 ],
-		['ext_desktop_size',   -308 ]
+		//['JPEG_quality_lo',    -32 ],
+		['JPEG_quality_med',     -26 ],
+		//['JPEG_quality_hi',    -23 ],
+		//['compress_lo',       -255 ],
+		['compress_hi',         -247 ],
+		['last_rect',           -224 ],
+		['xvp',                 -309 ],
+		['ExtendedDesktopSize', -308 ]
 	];
 
 	this._encHandlers = {};
@@ -2790,6 +2821,8 @@ function RFB (defaults) {
 		'wsProtocols': ['binary', 'base64'],    // Protocols to use in the WebSocket connection
 		'repeaterID': '',                       // [UltraVNC] RepeaterID to connect to
 		'viewportDrag': false,                  // Move the viewport on mouse drags
+		'forceAuthScheme': 0,                   // Force auth scheme (0 means no)
+		'enableMouseAndTouch': false,           // Whether also enable mouse events when touch screen is detected
 
 		// Callback functions
 		'onUpdateState': function () { },       // onUpdateState(rfb, state, oldstate, statusMsg): state update/change
@@ -2801,6 +2834,8 @@ function RFB (defaults) {
 		'onFBResize': function () { },          // onFBResize(rfb, width, height): frame buffer resized
 		'onDesktopName': function () { },       // onDesktopName(rfb, name): desktop name received
 		'onXvpInit': function () { },           // onXvpInit(version): XVP extensions active for this connection
+		'onUnknownMessageType': null            // Handler for unknown VNC message types. If
+												                    // null failure is emitted and the RFB closed.
 	});
 
 	// populate encHandlers with bound versions
@@ -2819,7 +2854,8 @@ function RFB (defaults) {
 		this._display = new Display({target: this._target});
 	} catch(error) {
 		debugerror('Display exception: ' + error);
-		this._updateState('fatal', 'No working Display');
+		// Don't continue. Avoid ugly errors in "fatal" state.
+		throw(error);
 	}
 
 	this._keyboard = new Keyboard({
@@ -2831,7 +2867,8 @@ function RFB (defaults) {
 		target: this._target,
 		onMouseButton: this._handleMouseButton.bind(this),
 		onMouseMove: this._handleMouseMove.bind(this),
-		notify: this._keyboard.sync.bind(this._keyboard)
+		notify: this._keyboard.sync.bind(this._keyboard),
+		enableMouseAndTouch: this._enableMouseAndTouch
 	});
 
 	this._sock = new Websock();
@@ -2862,7 +2899,7 @@ function RFB (defaults) {
 		} else if (this._rfb_state === 'ProtocolVersion') {
 			this._fail('Failed to connect to server' + msg);
 		} else if (this._rfb_state in {'failed': 1, 'disconnected': 1}) {
-			debugerror('Received onclose while disconnected' + msg);
+			debug('Received onclose while disconnected' + msg);
 		} else {
 			this._fail('Server disconnected' + msg);
 		}
@@ -2887,7 +2924,7 @@ RFB.prototype = {
 		this._rfb_url = url;
 		this._rfb_password = (password !== undefined) ? password : '';
 
-		this._updateState('connect');
+		this._updateState('connect', 'Connecting');
 	},
 
 	disconnect: function () {
@@ -3031,6 +3068,27 @@ RFB.prototype = {
 		}
 	},
 
+	_cleanupSocket: function (state) {
+		if (this._sendTimer) {
+			clearInterval(this._sendTimer);
+			this._sendTimer = null;
+		}
+		if (this._msgTimer) {
+			clearInterval(this._msgTimer);
+			this._msgTimer = null;
+		}
+		if (this._display && this._display.get_context()) {
+			this._keyboard.ungrab();
+			this._mouse.ungrab();
+			if (state !== 'connect' && state !== 'loaded') {
+				this._display.defaultCursor();
+			}
+			this._display.clear();
+		}
+
+		this._sock.close();
+	},
+
 
 	/*
 	 * Page states:
@@ -3052,6 +3110,8 @@ RFB.prototype = {
 	 *   ServerInitialization (to normal)
 	 */
 	_updateState: function (state, statusMsg) {
+		debug('_updateState() | [state:%s, msg:"%s"]', state, statusMsg);
+
 		var oldstate = this._rfb_state;
 
 		if (state === oldstate) {
@@ -3064,39 +3124,16 @@ RFB.prototype = {
 		 * asynchronously cause a connection so make sure we are closed.
 		 */
 		if (state in {'disconnected': 1, 'loaded': 1, 'connect': 1,
-					  'disconnect': 1, 'failed': 1, 'fatal': 1}) {
-
-			if (this._sendTimer) {
-				clearInterval(this._sendTimer);
-				this._sendTimer = null;
-			}
-
-			if (this._msgTimer) {
-				clearInterval(this._msgTimer);
-				this._msgTimer = null;
-			}
-
-			if (this._display && this._display.get_context()) {
-				this._keyboard.ungrab();
-				this._mouse.ungrab();
-				if (state !== 'connect' && state !== 'loaded') {
-					this._display.defaultCursor();
-				}
-			}
-
-			this._sock.close();
+			'disconnect': 1, 'failed': 1, 'fatal': 1}) {
+			this._cleanupSocket(state);
 		}
 
 		if (oldstate === 'fatal') {
 			debugerror('_updateState() | fatal error, cannot continue');
 		}
 
-		var cmsg = typeof(statusMsg) !== 'undefined' ? ('msg: ' + statusMsg) : '';
-
-		if (state === 'failed' || state === 'fatal') {
-			debugerror('_updateState() | %s', cmsg);
-		} else {
-			debugerror('_updateState() | %s', cmsg);
+		if (statusMsg && (state === 'failed' || state === 'fatal')) {
+			debugerror('_updateState() | %s: %s', state, statusMsg);
 		}
 
 		if (oldstate === 'failed' && state === 'disconnected') {
@@ -3110,6 +3147,7 @@ RFB.prototype = {
 			debug('_updateState() | clearing disconnect timer');
 			clearTimeout(this._disconnTimer);
 			this._disconnTimer = null;
+			this._sock.off('close');  // make sure we don't get a double event
 		}
 
 		switch (state) {
@@ -3155,13 +3193,10 @@ RFB.prototype = {
 				// No state change action to take
 		}
 
-		// TODO: ibc: IMHO this will throw since _onUpdateState is defined nowhere.
-		// https://github.com/kanaka/noVNC/issues/455
-		// So I me it to onUpdateState which is a property of the RFB instance.
 		if (oldstate === 'failed' && state === 'disconnected') {
-			this.onUpdateState(this, state, oldstate);
+			this._onUpdateState(this, state, oldstate);
 		} else {
-			this.onUpdateState(this, state, oldstate, statusMsg);
+			this._onUpdateState(this, state, oldstate, statusMsg);
 		}
 	},
 
@@ -3311,7 +3346,7 @@ RFB.prototype = {
 		this._sendTimer = setInterval(this._sock.flush.bind(this._sock), 50);
 
 		var cversion = '00' + parseInt(this._rfb_version, 10) +
-					   '.00' + ((this._rfb_version * 10) % 10);
+						 '.00' + ((this._rfb_version * 10) % 10);
 		this._sock.send_string('RFB ' + cversion + '\n');
 		this._updateState('Security', 'Sent ProtocolVersion: ' + cversion);
 	},
@@ -3331,10 +3366,16 @@ RFB.prototype = {
 			this._rfb_auth_scheme = 0;
 			var types = this._sock.rQshiftBytes(num_types);
 			debug('_negotiate_security() | server security types: ' + types);
-			for (var i = 0; i < types.length; i++) {
-				if (types[i] > this._rfb_auth_scheme && (types[i] <= 16 || types[i] === 22)) {
-					this._rfb_auth_scheme = types[i];
+
+			if (! this._forceAuthScheme) {
+				for (var i = 0; i < types.length; i++) {
+					if (types[i] > this._rfb_auth_scheme && (types[i] <= 16 || types[i] === 22)) {
+						this._rfb_auth_scheme = types[i];
+					}
 				}
+			}
+			else {
+				this._rfb_auth_scheme = this._forceAuthScheme;
 			}
 
 			if (this._rfb_auth_scheme === 0) {
@@ -3358,15 +3399,15 @@ RFB.prototype = {
 		var xvp_auth = this._rfb_password.split(xvp_sep);
 		if (xvp_auth.length < 3) {
 			this._updateState('password', 'XVP credentials required (user' + xvp_sep +
-							  'target' + xvp_sep + 'password) -- got only ' + this._rfb_password);
+								'target' + xvp_sep + 'password) -- got only ' + this._rfb_password);
 			this._onPasswordRequired(this);
 			return false;
 		}
 
 		var xvp_auth_str = String.fromCharCode(xvp_auth[0].length) +
-						   String.fromCharCode(xvp_auth[1].length) +
-						   xvp_auth[0] +
-						   xvp_auth[1];
+							 String.fromCharCode(xvp_auth[1].length) +
+							 xvp_auth[0] +
+							 xvp_auth[1];
 		this._sock.send_string(xvp_auth_str);
 		this._rfb_password = xvp_auth.slice(2).join(xvp_sep);
 		this._rfb_auth_scheme = 2;
@@ -3446,6 +3487,9 @@ RFB.prototype = {
 			var capabilities = this._sock.rQshiftStr(12);
 			serverSupportedTypes.push(capabilities);
 		}
+
+		debug('_negotiate_tight_auth() | clientSupportedTypes: %o', clientSupportedTypes);
+		debug('_negotiate_tight_auth() | serverSupportedTypes: %o', serverSupportedTypes);
 
 		for (var authType in clientSupportedTypes) {
 			if (serverSupportedTypes.indexOf(authType) !== -1) {
@@ -3578,15 +3622,15 @@ RFB.prototype = {
 		// NB(directxman12): these are down here so that we don't run them multiple times
 		//                   if we backtrack
 		debug('_negotiate_server_init() | screen: ' + this._fb_width + 'x' + this._fb_height +
-				  ', bpp: ' + bpp + ', depth: ' + depth +
-				  ', big_endian: ' + big_endian +
-				  ', true_color: ' + true_color +
-				  ', red_max: ' + red_max +
-				  ', green_max: ' + green_max +
-				  ', blue_max: ' + blue_max +
-				  ', red_shift: ' + red_shift +
-				  ', green_shift: ' + green_shift +
-				  ', blue_shift: ' + blue_shift);
+					', bpp: ' + bpp + ', depth: ' + depth +
+					', big_endian: ' + big_endian +
+					', true_color: ' + true_color +
+					', red_max: ' + red_max +
+					', green_max: ' + green_max +
+					', blue_max: ' + blue_max +
+					', red_shift: ' + red_shift +
+					', green_shift: ' + green_shift +
+					', blue_shift: ' + blue_shift);
 
 		if (big_endian !== 0) {
 			debugerror('_negotiate_server_init() | server native endian is not little endian');
@@ -3627,7 +3671,7 @@ RFB.prototype = {
 						RFB.messages.clientEncodings(this._encodings, this._local_cursor, this._true_color));
 		response = response.concat(
 						RFB.messages.fbUpdateRequests(this._display.getCleanDirtyReset(),
-													  this._fb_width, this._fb_height));
+														this._fb_width, this._fb_height));
 
 		this._timing.fbu_rt_start = (new Date()).getTime();
 		this._timing.pixels = 0;
@@ -3756,9 +3800,28 @@ RFB.prototype = {
 				return this._handle_xvp_msg();
 
 			default:
-				this._fail('Disconnected: illegal server message type ' + msg_type);
-				debugerror('_normal_msg() | sock.rQslice(0, 30): ' + this._sock.rQslice(0, 30));
-				return true;
+				// If onUnknownMessageType is not set then just fail.
+				if (! this._onUnknownMessageType) {
+					this._fail('Disconnected: illegal server message type ' + msg_type);
+					debugerror('_normal_msg() | sock.rQslice(0, 30): ' + this._sock.rQslice(0, 30));
+					return true;
+				}
+				// If onUnknownMessageType is set then call it. If the app does not accept
+				// the unknown message type it must throw an error.
+				// The listener must return false if more bytes are needed,
+				// true otherwise.
+				else {
+					debug('_normal_msg() | passing unknown message type ' + msg_type + ' to the onUnknownMessageType listener');
+					try {
+						return this._onUnknownMessageType(msg_type, this._sock);
+					}
+					catch(error) {
+						debugerror('_normal_msg() | error catched during onUnknownMessageType: %o', error);
+						this._fail('Disconnected: invalid custom server message type ' + msg_type);
+						debugerror('_normal_msg() | sock.rQslice(0, 30): ' + this._sock.rQslice(0, 30));
+						return true;
+					}
+				}
 		}
 	},
 
@@ -3792,7 +3855,7 @@ RFB.prototype = {
 				this._FBU.width    = (hdr[4] << 8) + hdr[5];
 				this._FBU.height   = (hdr[6] << 8) + hdr[7];
 				this._FBU.encoding = parseInt((hdr[8] << 24) + (hdr[9] << 16) +
-											  (hdr[10] << 8) + hdr[11], 10);
+												(hdr[10] << 8) + hdr[11], 10);
 
 				this._onFBUReceive(this,
 					{'x': this._FBU.x, 'y': this._FBU.y,
@@ -3802,7 +3865,7 @@ RFB.prototype = {
 
 				if (!this._encNames[this._FBU.encoding]) {
 					this._fail('Disconnected: unsupported encoding ' +
-							   this._FBU.encoding);
+								 this._FBU.encoding);
 					return false;
 				}
 			}
@@ -3826,10 +3889,10 @@ RFB.prototype = {
 					this._timing.full_fbu_total += this._timing.cur_fbu;
 					this._timing.full_fbu_cnt++;
 					debug('_framebufferUpdate() | timing of full FBU, curr: ' +
-							  this._timing.cur_fbu + ', total: ' +
-							  this._timing.full_fbu_total + ', cnt: ' +
-							  this._timing.full_fbu_cnt + ', avg: ' +
-							  (this._timing.full_fbu_total / this._timing.full_fbu_cnt));
+								this._timing.cur_fbu + ', total: ' +
+								this._timing.full_fbu_total + ', cnt: ' +
+								this._timing.full_fbu_cnt + ', avg: ' +
+								(this._timing.full_fbu_total / this._timing.full_fbu_cnt));
 				}
 
 				if (this._timing.fbu_rt_start > 0) {
@@ -3872,6 +3935,8 @@ Util.make_properties(RFB, [
 	['wsProtocols', 'rw', 'arr'],           // Protocols to use in the WebSocket connection
 	['repeaterID', 'rw', 'str'],            // [UltraVNC] RepeaterID to connect to
 	['viewportDrag', 'rw', 'bool'],         // Move the viewport on mouse drags
+	['forceAuthScheme', 'rw', 'int'],       // Force auth scheme (0 means no)
+	['enableMouseAndTouch', 'rw', 'bool'],  // Whether also enable mouse events when touch screen is detected
 
 	// Callback functions
 	['onUpdateState', 'rw', 'func'],        // onUpdateState(rfb, state, oldstate, statusMsg): RFB state update/change
@@ -3883,18 +3948,21 @@ Util.make_properties(RFB, [
 	['onFBResize', 'rw', 'func'],           // onFBResize(rfb, width, height): frame buffer resized
 	['onDesktopName', 'rw', 'func'],        // onDesktopName(rfb, name): desktop name received
 	['onXvpInit', 'rw', 'func'],            // onXvpInit(version): XVP extensions active for this connection
+	['onUnknownMessageType', 'rw', 'func']  // Handler for unknown VNC message types. If
+											                    // null failure is emitted and the RFB closed.
 ]);
 
 
 RFB.prototype.set_local_cursor = function (cursor) {
 	if (!cursor || (cursor in {'0': 1, 'no': 1, 'false': 1})) {
 		this._local_cursor = false;
-		this._display.disableLocalCursor(); //Only show server-side cursor
+		this._display.disableLocalCursor(); // Only show server-side cursor
 	} else {
 		if (this._display.get_cursor_uri()) {
 			this._local_cursor = true;
 		} else {
-			debugerror('set_local_cursor() | browser does not support local cursor');
+			debug('browser does not support local cursor');
+			this._display.disableLocalCursor();
 		}
 	}
 };
@@ -4042,7 +4110,7 @@ RFB.encodingHandlers = {
 		if (this._sock.rQwait('RAW', this._FBU.bytes)) { return false; }
 		var cur_y = this._FBU.y + (this._FBU.height - this._FBU.lines);
 		var curr_height = Math.min(this._FBU.lines,
-								   Math.floor(this._sock.rQlen() / (this._FBU.width * this._fb_Bpp)));
+									 Math.floor(this._sock.rQlen() / (this._FBU.width * this._fb_Bpp)));
 		this._display.blitImage(this._FBU.x, cur_y, this._FBU.width,
 								curr_height, this._sock.get_rQ(),
 								this._sock.get_rQi());
@@ -4507,15 +4575,27 @@ RFB.encodingHandlers = {
 		return true;
 	},
 
-	ext_desktop_size: function () {
+	handle_FB_resize: function () {
+		this._fb_width = this._FBU.width;
+		this._fb_height = this._FBU.height;
+		this._display.resize(this._fb_width, this._fb_height);
+		this._onFBResize(this, this._fb_width, this._fb_height);
+		this._timing.fbu_rt_start = (new Date()).getTime();
+
+		this._FBU.bytes = 0;
+		this._FBU.rects -= 1;
+		return true;
+	},
+
+	ExtendedDesktopSize: function () {
 		this._FBU.bytes = 1;
-		if (this._sock.rQwait('ext_desktop_size', this._FBU.bytes)) { return false; }
+		if (this._sock.rQwait('ExtendedDesktopSize', this._FBU.bytes)) { return false; }
 
 		this._supportsSetDesktopSize = true;
 		var number_of_screens = this._sock.rQpeek8();
 
 		this._FBU.bytes = 4 + (number_of_screens * 16);
-		if (this._sock.rQwait('ext_desktop_size', this._FBU.bytes)) { return false; }
+		if (this._sock.rQwait('ExtendedDesktopSize', this._FBU.bytes)) { return false; }
 
 		this._sock.rQskipBytes(1);  // number-of-screens
 		this._sock.rQskipBytes(3);  // padding
@@ -4534,31 +4614,44 @@ RFB.encodingHandlers = {
 			}
 		}
 
-		if (this._FBU.x === 0 && this._FBU.y !== 0) { return true; }
+		/*
+		 * The x-position indicates the reason for the change:
+		 *
+		 *  0 - server resized on its own
+		 *  1 - this client requested the resize
+		 *  2 - another client requested the resize
+		 */
 
-		this._fb_width = this._FBU.width;
-		this._fb_height = this._FBU.height;
-		this._display.resize(this._fb_width, this._fb_height);
-		this._onFBResize(this, this._fb_width, this._fb_height);
+		// We need to handle errors when we requested the resize.
+		if (this._FBU.x === 1 && this._FBU.y !== 0) {
+			var msg = '';
+			// The y-position indicates the status code from the server
+			switch (this._FBU.y) {
+			case 1:
+					msg = 'resize is administratively prohibited';
+					break;
+			case 2:
+					msg = 'out of resources';
+					break;
+			case 3:
+					msg = 'invalid screen layout';
+					break;
+			default:
+					msg = 'unknown reason';
+					break;
+			}
+			debug('ExtendedDesktopSize() | server did not accept the resize request: %s', msg);
+			return true;
+		}
 
-		this._FBU.bytes = 0;
-		this._FBU.rects -= 1;
-
+		this._encHandlers.handle_FB_resize();
 		return true;
 	},
 
 	DesktopSize: function () {
 		debug('DesktopSize()');
 
-		this._fb_width = this._FBU.width;
-		this._fb_height = this._FBU.height;
-		this._display.resize(this._fb_width, this._fb_height);
-		this._onFBResize(this, this._fb_width, this._fb_height);
-		this._timing.fbu_rt_start = (new Date()).getTime();
-
-		this._FBU.bytes = 0;
-		this._FBU.rects--;
-
+		this._encHandlers.handle_FB_resize();
 		return true;
 	},
 
@@ -4577,8 +4670,8 @@ RFB.encodingHandlers = {
 		if (this._sock.rQwait('cursor encoding', this._FBU.bytes)) { return false; }
 
 		this._display.changeCursor(this._sock.rQshiftBytes(pixelslength),
-								   this._sock.rQshiftBytes(masklength),
-								   x, y, w, h);
+									 this._sock.rQshiftBytes(masklength),
+									 x, y, w, h);
 
 		this._FBU.bytes = 0;
 		this._FBU.rects--;
@@ -5127,8 +5220,15 @@ function read_bits_direct(source, bitcount, tag, idx, num) {
 /**
  * Dependencies.
  */
+var debug = require('debug')('noVNC:Util');
 var debugerror = require('debug')('noVNC:ERROR:Util');
 debugerror.log = console.warn.bind(console);
+
+
+/**
+ * Local variables.
+ */
+var cursor_uris_supported = null;
 
 
 var Util = module.exports = {
@@ -5138,25 +5238,37 @@ var Util = module.exports = {
 
 	push16: function (array, num) {
 		array.push((num >> 8) & 0xFF,
-				    num & 0xFF);
+						num & 0xFF);
 	},
 
 	push32: function (array, num) {
 		array.push((num >> 24) & 0xFF,
-				   (num >> 16) & 0xFF,
-				   (num >> 8) & 0xFF,
-				   num & 0xFF);
+					 (num >> 16) & 0xFF,
+					 (num >> 8) & 0xFF,
+					 num & 0xFF);
 	},
 
-	requestAnimFrame: (function () {
-		return  global.requestAnimationFrame       ||
-				global.webkitRequestAnimationFrame ||
-				global.mozRequestAnimationFrame    ||
-				global.oRequestAnimationFrame      ||
-				global.msRequestAnimationFrame     ||
-				function(callback) {
-					setTimeout(callback, 1000 / 60);
-				};
+	requestAnimationFrame: (function () {
+		if (global.requestAnimationFrame) {
+			return global.requestAnimationFrame.bind(global);
+		}
+		else if (global.webkitRequestAnimationFrame) {
+			return global.webkitRequestAnimationFrame.bind(global);
+		}
+		else if (global.mozRequestAnimationFrame) {
+			return global.mozRequestAnimationFrame.bind(global);
+		}
+		else if (global.oRequestAnimationFrame) {
+			return global.oRequestAnimationFrame.bind(global);
+		}
+		else if (global.msRequestAnimationFrame) {
+			return global.msRequestAnimationFrame.bind(global);
+		}
+		else {
+			return function(callback) {
+				setTimeout(callback, 1000 / 60);
+			};
+		}
 	})(),
 
 	make_properties: function (constructor, arr) {
@@ -5200,9 +5312,13 @@ var Util = module.exports = {
 	 * Get DOM element position on page.
 	 */
 	getPosition: function (obj) {
+		// NB(sross): the Mozilla developer reference seems to indicate that
+		// getBoundingClientRect includes border and padding, so the canvas
+		// style should NOT include either.
 		var objPosition = obj.getBoundingClientRect();
 
-		return {'x': objPosition.left, 'y': objPosition.top};
+		return {'x': objPosition.left + window.pageXOffset, 'y': objPosition.top + window.pageYOffset,
+						'width': objPosition.width, 'height': objPosition.height};
 	},
 
 	/**
@@ -5229,8 +5345,8 @@ var Util = module.exports = {
 
 		var realx = docX - pos.x;
 		var realy = docY - pos.y;
-		var x = Math.max(Math.min(realx, obj.width - 1), 0);
-		var y = Math.max(Math.min(realy, obj.height - 1), 0);
+		var x = Math.max(Math.min(realx, pos.width - 1), 0);
+		var y = Math.max(Math.min(realy, pos.height - 1), 0);
 
 		return {'x': x / scale, 'y': y / scale, 'realx': realx / scale, 'realy': realy / scale};
 	},
@@ -5265,6 +5381,29 @@ var Util = module.exports = {
 
 		if (e.preventDefault)  { e.preventDefault(); }
 		else                   { e.returnValue = false; }
+	},
+
+	browserSupportsCursorURIs: function () {
+		if (cursor_uris_supported === null) {
+			try {
+				var target = document.createElement('canvas');
+
+				target.style.cursor = 'url("data:image/x-icon;base64,AAACAAEACAgAAAIAAgA4AQAAFgAAACgAAAAIAAAAEAAAAAEAIAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAD/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAAAAAAAAAAAAAAAAAAAA==") 2 2, default';
+
+				if (target.style.cursor) {
+					debug('data URI scheme cursor supported');
+					cursor_uris_supported = true;
+				} else {
+					debugerror('data URI scheme cursor not supported');
+					cursor_uris_supported = false;
+				}
+			} catch (exc) {
+				debugerror('data URI scheme cursor test exception: ' + exc);
+				cursor_uris_supported = false;
+			}
+		}
+
+		return cursor_uris_supported;
 	}
 };
 
@@ -5393,6 +5532,7 @@ function make_property (proto, name, mode, type) {
 var debug = require('debug')('noVNC:Websock');
 var debugerror = require('debug')('noVNC:ERROR:Websock');
 debugerror.log = console.warn.bind(console);
+var browser = require('bowser').browser;
 var Base64 = require('./base64');
 
 
@@ -5559,7 +5699,7 @@ Websock.prototype = {
 		this._eventHandlers[evt] = function() {};
 	},
 
-	init: function (protocols, ws_schema) {
+	init: function (protocols) {
 		this._rQ = [];
 		this._rQi = 0;
 		this._sQ = [];
@@ -5571,19 +5711,15 @@ Websock.prototype = {
 			bt = true;
 		}
 
-		// Check for full binary type support in WebSockets
-		// Inspired by:
-		// https://github.com/Modernizr/Modernizr/issues/370
-		// https://github.com/Modernizr/Modernizr/blob/master/feature-detects/websockets/binary.js
 		var wsbt = false;
-		try {
-			if (bt && ('binaryType' in WebSocket.prototype ||
-					   !!(new WebSocket(ws_schema + '://.').binaryType))) {
-				debug('init() | detected binaryType support in WebSocket');
+		if (global.WebSocket) {
+			// Safari < 7 does not support binary WS.
+			if (browser.safari && Number(browser.version) > 0 && Number(browser.version) < 7) {
+				debug('init() | Safari %d does not support binary WebSocket', Number(browser.version));
+			}
+			else {
 				wsbt = true;
 			}
-		} catch(error) {
-			// Just ignore failed test localhost connection
 		}
 
 		// Default protocols if not specified
@@ -5623,12 +5759,16 @@ Websock.prototype = {
 	},
 
 	open: function (uri, protocols) {
-		var ws_schema = uri.match(/^([a-z]+):\/\//)[1];
 		var self = this;
 
-		protocols = this.init(protocols, ws_schema);
+		protocols = this.init(protocols);
 
-		this._websocket = new WebSocket(uri, protocols);
+		// TODO: Add API or settings for passing the W3C WebSocket class.
+		if (global.NativeWebSocket) {
+			this._websocket = new global.NativeWebSocket(uri, protocols);
+		} else {
+			this._websocket = new WebSocket(uri, protocols);
+		}
 
 		if (protocols.indexOf('binary') >= 0) {
 			this._websocket.binaryType = 'arraybuffer';
@@ -5638,19 +5778,18 @@ Websock.prototype = {
 			self._recv_message(e);
 		};
 
-		if (this._websocket.protocol) {
-			this._websocket.onopen = function() {
+		this._websocket.onopen = function() {
+			if (self._websocket.protocol) {
 				debug('onopen: server choose "%s" sub-protocol', self._websocket.protocol);
-				self._mode = this._websocket.protocol;
+				self._mode = self._websocket.protocol;
 				self._eventHandlers.open();
-			};
-		} else {
-			this._websocket.onopen = function() {
+			}
+			else {
 				debugerror('onopen: server choose no sub-protocol, using "base64"');
 				self._mode = 'base64';
 				self._eventHandlers.open();
-			};
-		}
+			}
+		};
 
 		this._websocket.onclose = function (e) {
 			debug('onclose: %o', e);
@@ -5726,7 +5865,7 @@ Websock.prototype = {
 };
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./base64":2,"debug":13}],12:[function(require,module,exports){
+},{"./base64":2,"bowser":12,"debug":13}],12:[function(require,module,exports){
 /*!
   * Bowser - a browser detector
   * https://github.com/ded/bowser
