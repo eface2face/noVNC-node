@@ -1,5 +1,5 @@
 /*
- * noVNC-node 0.5.1
+ * noVNC-node 0.5.2
  * Fork of noVNC for Node/browserify by eFace2Face, Inc.
  * Copyright (C) 2011 Joel Martin <github@martintribe.org>
  * Homepage: https://github.com/eface2face/noVNC-node
@@ -3117,6 +3117,7 @@ RFB.prototype = {
 		if (state === oldstate) {
 			// Already here, ignore
 			debug('_updateState() | already in state "' + state + '", ignoring');
+			return;
 		}
 
 		/*

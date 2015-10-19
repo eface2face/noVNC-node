@@ -1,7 +1,7 @@
 {
   "name": "novnc-node",
   "title": "noVNC-node",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Fork of noVNC for Node/browserify by eFace2Face, Inc.",
   "main": "index.js",
   "repository": {
