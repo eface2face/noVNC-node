@@ -1,5 +1,5 @@
 /*
- * noVNC-node 0.5.2
+ * noVNC-node 0.5.3
  * Fork of noVNC for Node/browserify by eFace2Face, Inc.
  * Copyright (C) 2011 Joel Martin <github@martintribe.org>
  * Homepage: https://github.com/eface2face/noVNC-node
@@ -1408,6 +1408,7 @@ function Mouse (defaults) {
 		'target': document,
 		'focused': true,
 		'scale': 1.0,
+		'zoom': 1.0,
 		'touchButton': 1
 	});
 
@@ -1452,7 +1453,7 @@ Mouse.prototype = {
 		}
 
 		var evt = (e ? e : global.event);
-		var pos = Util.getEventPosition(e, this._target, this._scale);
+		var pos = Util.getEventPosition(e, this._target, this._scale, this._zoom);
 
 		var bmask;
 		if (e.touches || e.changedTouches) {
@@ -1524,7 +1525,7 @@ Mouse.prototype = {
 		}
 
 		var evt = (e ? e : global.event);
-		var pos = Util.getEventPosition(e, this._target, this._scale);
+		var pos = Util.getEventPosition(e, this._target, this._scale, this._zoom);
 		var wheelData = evt.detail ? evt.detail * -1 : evt.wheelDelta / 40;
 		var bmask;
 		if (wheelData > 0) {
@@ -1549,7 +1550,7 @@ Mouse.prototype = {
 			this._notify(e);
 		}
 
-		var pos = Util.getEventPosition(e, this._target, this._scale);
+		var pos = Util.getEventPosition(e, this._target, this._scale, this._zoom);
 		if (this._onMouseMove) {
 			this._onMouseMove(pos.x, pos.y);
 		}
@@ -1561,7 +1562,7 @@ Mouse.prototype = {
 	_handleMouseDisable: function (e) {
 		if (!this._focused) { return true; }
 
-		var pos = Util.getEventPosition(e, this._target, this._scale);
+		var pos = Util.getEventPosition(e, this._target, this._scale, this._zoom);
 
 		/* Stop propagation if inside canvas area */
 		if ((pos.realx >= 0) && (pos.realy >= 0) &&
@@ -1639,6 +1640,7 @@ Util.make_properties(Mouse, [
 	['notify',         'ro', 'func'],  // Function to call to notify whenever a mouse event is received
 	['focused',        'rw', 'bool'],  // Capture and send mouse clicks/movement
 	['scale',          'rw', 'float'], // Viewport scale factor 0.0 - 1.0
+	['zoom',           'rw', 'float'], // CSS zoom applied to the DOM element that captures mouse input
 	['enableMouseAndTouch', 'rw', 'bool'],  // Whether also enable mouse events when touch screen is detected
 
 	['onMouseButton',  'rw', 'func'],  // Handler for mouse button click/release
@@ -5325,14 +5327,19 @@ var Util = module.exports = {
 	/**
 	 * Get mouse event position in DOM element
 	 */
-	getEventPosition: function (e, obj, scale) {
+	getEventPosition: function (e, obj, scale, zoom) {
 		var evt, docX, docY, pos;
 
+		if (typeof zoom === 'undefined') {
+			zoom = 1.0;
+		}
 		evt = (e ? e : global.event);
 		evt = (evt.changedTouches ? evt.changedTouches[0] : evt.touches ? evt.touches[0] : evt);
 		if (evt.pageX || evt.pageY) {
 			docX = evt.pageX;
 			docY = evt.pageY;
+			docX = evt.pageX/zoom;
+			docY = evt.pageY/zoom;
 		} else if (evt.clientX || evt.clientY) {
 			docX = evt.clientX + document.body.scrollLeft +
 				document.documentElement.scrollLeft;
@@ -5764,10 +5771,13 @@ Websock.prototype = {
 
 		protocols = this.init(protocols);
 
+		// this._websocket = new WebSocket(uri, protocols);
 		// TODO: Add API or settings for passing the W3C WebSocket class.
 		if (global.NativeWebSocket) {
+			debug('open() | using NativeWebSocket');
 			this._websocket = new global.NativeWebSocket(uri, protocols);
 		} else {
+			debug('open() | not using NativeWebSocket');
 			this._websocket = new WebSocket(uri, protocols);
 		}
 
@@ -6122,17 +6132,10 @@ exports.formatArgs = formatArgs;
 exports.save = save;
 exports.load = load;
 exports.useColors = useColors;
-
-/**
- * Use chrome.storage.local if we are in an app
- */
-
-var storage;
-
-if (typeof chrome !== 'undefined' && typeof chrome.storage !== 'undefined')
-  storage = chrome.storage.local;
-else
-  storage = window.localStorage;
+exports.storage = 'undefined' != typeof chrome
+               && 'undefined' != typeof chrome.storage
+                  ? chrome.storage.local
+                  : localstorage();
 
 /**
  * Colors.
@@ -6240,9 +6243,9 @@ function log() {
 function save(namespaces) {
   try {
     if (null == namespaces) {
-      storage.removeItem('debug');
+      exports.storage.removeItem('debug');
     } else {
-      storage.debug = namespaces;
+      exports.storage.debug = namespaces;
     }
   } catch(e) {}
 }
@@ -6257,7 +6260,7 @@ function save(namespaces) {
 function load() {
   var r;
   try {
-    r = storage.debug;
+    r = exports.storage.debug;
   } catch(e) {}
   return r;
 }
@@ -6267,6 +6270,23 @@ function load() {
  */
 
 exports.enable(load());
+
+/**
+ * Localstorage attempts to return the localstorage.
+ *
+ * This is necessary because safari throws
+ * when a user disables cookies/localstorage
+ * and you attempt to access it.
+ *
+ * @return {LocalStorage}
+ * @api private
+ */
+
+function localstorage(){
+  try {
+    return window.localStorage;
+  } catch (e) {}
+}
 
 },{"./debug":14}],14:[function(require,module,exports){
 
@@ -6508,13 +6528,17 @@ module.exports = function(val, options){
  */
 
 function parse(str) {
-  var match = /^((?:\d+)?\.?\d+) *(ms|seconds?|s|minutes?|m|hours?|h|days?|d|years?|y)?$/i.exec(str);
+  str = '' + str;
+  if (str.length > 10000) return;
+  var match = /^((?:\d+)?\.?\d+) *(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|years?|yrs?|y)?$/i.exec(str);
   if (!match) return;
   var n = parseFloat(match[1]);
   var type = (match[2] || 'ms').toLowerCase();
   switch (type) {
     case 'years':
     case 'year':
+    case 'yrs':
+    case 'yr':
     case 'y':
       return n * y;
     case 'days':
@@ -6523,16 +6547,26 @@ function parse(str) {
       return n * d;
     case 'hours':
     case 'hour':
+    case 'hrs':
+    case 'hr':
     case 'h':
       return n * h;
     case 'minutes':
     case 'minute':
+    case 'mins':
+    case 'min':
     case 'm':
       return n * m;
     case 'seconds':
     case 'second':
+    case 'secs':
+    case 'sec':
     case 's':
       return n * s;
+    case 'milliseconds':
+    case 'millisecond':
+    case 'msecs':
+    case 'msec':
     case 'ms':
       return n;
   }
